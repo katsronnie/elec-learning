@@ -1,24 +1,46 @@
-import logo from './logo.svg';
-import './App.css';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import LandingPage from './pages/landingpage';
+import Virtual from './pages/virtualclass';
+import Login from './pages/auth/Login';
+import Register from './pages/auth/Register';
+import { FirebaseProvider } from './contexts/FirebaseContext';
+import TeacherDashboard from './pages/teacher/teacherdashboard';
+import TeacherWallet from './pages/teacher/teacherwallet';
+import StudentDashboard from './pages/student/studentdashboard';
+import StudentProfile from './pages/student/studentprofile';
+import StudentTime from './pages/student/studenttimetable';
+import AdminDashboard from './pages/admin/admindashboard';
+import './index.css';
+import SubjectSubscription from './pages/student/subjectsubscription';
+import SubscriptionPage from './pages/student/subscription';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <FirebaseProvider>
+      <Router>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/virtualclass" element={<Virtual />} />
+
+        {/* Teacher Routes */}
+        <Route path="/teacherdashboard" element={<TeacherDashboard />} />
+        <Route path="/teacherwallet" element={<TeacherWallet />} />
+
+        {/* Student Routes */}
+        <Route path="/studentdashboard" element={<StudentDashboard />} />
+        <Route path="/studentprofile" element={<StudentProfile />} />
+        <Route path="/studenttimetable" element={<StudentTime />} />
+        <Route path="/subscription" element={<SubscriptionPage/>} />
+        <Route path="/subjectsubscription" element={<SubjectSubscription />} />
+
+        {/* Admin Routes */}
+        <Route path="/admindashboard" element={<AdminDashboard />} />
+      </Routes>
+    </Router>
+    </FirebaseProvider>
   );
 }
 
