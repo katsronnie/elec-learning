@@ -17,7 +17,7 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth, db } from '../../firebase/config';
 
 const AdminDashboard = () => {
-  const [adminName] = useState('Michael Thompson');
+  const [adminName] = useState('Katende Ronnie Magala');
   const [role] = useState('System Administrator');
   
   // Firebase data states
@@ -65,6 +65,41 @@ const AdminDashboard = () => {
           }
         });
         setStudents(studentsData);
+
+
+        // Fetch subscribed subjects for all students
+        const fetchSubscribedSubjects = async () => {
+          try {
+            const subscribedSubjectsSnapshot = await getDocs(collection(db, 'subscribedSubjects'));
+            const subscribedSubjectsData = {};
+            
+            subscribedSubjectsSnapshot.forEach(doc => {
+              const data = doc.data();
+              if (!subscribedSubjectsData[data.studentId]) {
+                subscribedSubjectsData[data.studentId] = [];
+              }
+              subscribedSubjectsData[data.studentId].push({
+                id: doc.id,
+                ...data
+              });
+            });
+            
+            // Update students with their subscribed subjects
+            const updatedStudents = studentsData.map(student => {
+              return {
+                ...student,
+                subscribedSubjects: subscribedSubjectsData[student.id] || []
+              };
+            });
+            
+            setStudents(updatedStudents);
+          } catch (error) {
+            console.error("Error fetching subscribed subjects:", error);
+          }
+        };
+
+        fetchSubscribedSubjects();
+
         
         // Fetch teachers
         const teachersSnapshot = await getDocs(collection(db, 'users'));
@@ -166,7 +201,7 @@ const AdminDashboard = () => {
         });
       }
     });
-    return `$${total.toFixed(2)}`;
+    return `UGX ${total.toFixed(2)}`;
   };
   
   // Handle adding a new teacher
@@ -494,26 +529,26 @@ const AdminDashboard = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            student.subscriptions && Object.values(student.subscriptions).some(sub => sub.paid)
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-yellow-100 text-yellow-800'
+                            student.subscribedSubjects && student.subscribedSubjects.length > 0
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-yellow-100 text-yellow-800'
                           }`}>
-                            {student.subscriptions && Object.values(student.subscriptions).some(sub => sub.paid)
+                            {student.subscribedSubjects && student.subscribedSubjects.length > 0
                               ? 'Paid'
                               : 'Unpaid'}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {student.subscriptions ? (
+                          {student.subscribedSubjects && student.subscribedSubjects.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
-                              {Object.entries(student.subscriptions).map(([subjectId, details]) => {
-                                const subject = subjects.find(s => s.id === subjectId);
-                                return (
-                                  <span key={subjectId} className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                                    {subject ? subject.name : 'Unknown Subject'}
-                                  </span>
-                                );
-                              })}
+                              {student.subscribedSubjects.map(subscription => (
+                                <span 
+                                  key={subscription.id} 
+                                  className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800"
+                                >
+                                  {subscription.subjectName}
+                                </span>
+                              ))}
                             </div>
                           ) : (
                             'No subscriptions'
@@ -820,7 +855,7 @@ const AdminDashboard = () => {
                           </div>
                           <div>
                             <label htmlFor="price" className="block text-sm font-medium text-gray-700">
-                              Price ($)
+                              Price (UGX)
                             </label>
                             <input
                               type="number"

@@ -1,31 +1,178 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import TeacherWallet from '../../pages/teacher/teacherwallet';
+import TeacherWallet from './teacherwallet';
+import { auth, db } from '../../firebase/config';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { useNavigate } from 'react-router-dom';
 
 const TeacherDashboard = () => {
-  const [teacherName] = useState('Dr. Sarah Wilson');
-  const [department] = useState('Science Department');
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [teacher, setTeacher] = useState(null);
+  const [isFirstLogin, setIsFirstLogin] = useState(false);
+  const [subjectsCount, setSubjectsCount] = useState(0);
+  const [studentsCount, setStudentsCount] = useState(0);
   
+  // Original state variables
   const [upcomingClasses] = useState([
     { id: 1, subject: 'Physics', class: '10th Grade', topic: 'Newton\'s Laws', time: '10:00 AM', date: 'Today', room: 'Lab 101' },
     { id: 2, subject: 'Chemistry', class: '11th Grade', topic: 'Periodic Table', time: '1:30 PM', date: 'Today', room: 'Room 203' },
     { id: 3, subject: 'Biology', class: '9th Grade', topic: 'Cell Structure', time: '9:15 AM', date: 'Tomorrow', room: 'Lab 102' }
   ]);
-  
+ 
   const [assignedSubjects] = useState([
     { id: 1, name: 'Physics', grades: ['10th', '11th'], students: 45, nextClass: 'Today, 10:00 AM' },
     { id: 2, name: 'Chemistry', grades: ['11th', '12th'], students: 38, nextClass: 'Today, 1:30 PM' },
     { id: 3, name: 'Biology', grades: ['9th'], students: 32, nextClass: 'Tomorrow, 9:15 AM' }
   ]);
-  
+ 
   const [pendingTasks] = useState([
     { id: 1, type: 'Assignment', title: 'Grade Physics Lab Reports', dueDate: 'Tomorrow', class: '10th Grade' },
     { id: 2, type: 'Test', title: 'Prepare Chemistry Mid-Term', dueDate: 'Friday', class: '11th Grade' },
     { id: 3, type: 'Lesson', title: 'Create Biology Presentation', dueDate: 'Next Monday', class: '9th Grade' }
   ]);
-
+  
   // Added state for wallet section visibility
   const [showWallet, setShowWallet] = useState(false);
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          // Query users collection to find a teacher with matching email
+          const usersRef = collection(db, "users");
+          const q = query(
+            usersRef, 
+            where("email", "==", user.email),
+            where("role", "==", "teacher")
+          );
+          
+          const querySnapshot = await getDocs(q);
+          
+          if (!querySnapshot.empty) {
+            // Get the first matching teacher document
+            const teacherDoc = querySnapshot.docs[0];
+            const teacherData = teacherDoc.data();
+            const teacherId = teacherDoc.id;
+            
+            setTeacher({
+              ...teacherData,
+              id: teacherId
+            });
+            
+            // Check if this is first login
+            setIsFirstLogin(!teacherData.lastLogin);
+            
+            // Update teacher's subjects count
+            const subjectsQuery = query(
+              collection(db, "subjects"),
+              where("teacherId", "==", teacherId)
+            );
+            const subjectsSnapshot = await getDocs(subjectsQuery);
+            setSubjectsCount(subjectsSnapshot.size);
+               // Process subject data for display
+          const subjectsData = [];
+          subjectsSnapshot.forEach(doc => {
+            const subject = doc.data();
+            subjectsData.push({
+              id: doc.id,
+              name: subject.name || "Unnamed Subject",
+              description: subject.description || "No description",
+              grades: subject.grades || [],
+              students: subject.enrolledStudents?.length || 0,
+              nextClass: subject.nextClass || "No upcoming classes"
+            });
+          });
+          
+          setTeacherSubjects(subjectsData);
+            
+          
+          // Count students enrolled in teacher's subjects
+          let totalStudents = 0;
+          const teacherSubjectIds = subjectsSnapshot.docs.map(doc => doc.id);
+          const teacherSubjectNames = subjectsSnapshot.docs.map(doc => doc.data().name);
+
+          console.log("Teacher subject IDs:", teacherSubjectIds);
+          console.log("Teacher subject names:", teacherSubjectNames);
+
+          if (teacherSubjectIds.length > 0) {
+            try {
+              // Query the subscribedsubjects collection
+              const subscribedSubjectsRef = collection(db, "subscribedSubjects");
+              const subscribedSubjectsSnapshot = await getDocs(subscribedSubjectsRef);
+              
+              console.log("Total subscriptions found:", subscribedSubjectsSnapshot.size);
+              
+              // Create a Set to track unique student IDs
+              const uniqueStudentIds = new Set();
+              
+              // Check each subscription
+              subscribedSubjectsSnapshot.forEach(subDoc => {
+                const subscriptionData = subDoc.data();
+                console.log("Checking subscription:", subscriptionData);
+                
+                // Check if this subscription is for one of the teacher's subjects
+                // First check by subject ID
+                if (subscriptionData.subjectId && teacherSubjectIds.includes(subscriptionData.subjectId)) {
+                  console.log("Match found by subject ID");
+                  if (subscriptionData.studentId) {
+                    uniqueStudentIds.add(subscriptionData.studentId);
+                  }
+                } 
+                // Then check by subject name
+                else if (subscriptionData.subjectName && teacherSubjectNames.includes(subscriptionData.subjectName)) {
+                  console.log("Match found by subject name");
+                  if (subscriptionData.studentId) {
+                    uniqueStudentIds.add(subscriptionData.studentId);
+                  }
+                }
+              });
+              
+              totalStudents = uniqueStudentIds.size;
+              console.log("Unique students found:", totalStudents);
+              console.log("Student IDs:", Array.from(uniqueStudentIds));
+              
+            } catch (error) {
+              console.error("Error counting students from subscribedsubjects:", error);
+            }
+          }
+
+          setStudentsCount(totalStudents);
+
+
+            
+            // Update last login timestamp would be done here
+            // This would typically be done in a Cloud Function or server-side
+            
+          } else {
+            // No teacher found with this email
+            console.log("No teacher account found with this email");
+            navigate('/login');
+          }
+        } catch (error) {
+          console.error("Error fetching teacher data:", error);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        // No user is signed in, redirect to login
+        navigate('/login');
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [navigate]);
+  
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -44,14 +191,33 @@ const TeacherDashboard = () => {
               </button>
             </div>
             <div className="flex items-center">
-              <img className="h-8 w-8 rounded-full" src="https://via.placeholder.com/150" alt="Profile" />
-              <span className="ml-2 text-sm font-medium text-gray-700">{teacherName}</span>
+              <img 
+                className="h-8 w-8 rounded-full" 
+                src={teacher.photoURL || "https://via.placeholder.com/150"} 
+                alt="Profile" 
+              />
+              <span className="ml-2 text-sm font-medium text-gray-700">{teacher.name}</span>
             </div>
           </div>
         </div>
       </header>
-
       <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        {/* Welcome Banner */}
+        <div className="mb-6 bg-purple-100 rounded-lg p-4">
+          <h2 className="text-xl font-semibold text-purple-800">
+            {isFirstLogin 
+              ? `Welcome, Tr. ${teacher.name}!` 
+              : `Welcome back, Tr. ${teacher.name}!`
+            }
+          </h2>
+          <p className="text-purple-600">
+            {isFirstLogin 
+              ? "Thank you for joining our e-learning platform. Get started by exploring your dashboard." 
+              : `You have ${pendingTasks.length} pending tasks and ${upcomingClasses.length} upcoming classes.`
+            }
+          </p>
+        </div>
+
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Teacher Info Card */}
           <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -63,17 +229,17 @@ const TeacherDashboard = () => {
                   </svg>
                 </div>
                 <div className="ml-5">
-                  <h3 className="text-lg font-medium text-gray-900">{teacherName}</h3>
-                  <p className="text-sm text-gray-500">{department} • Teacher ID: T2023001</p>
+                  <h3 className="text-lg font-medium text-gray-900">{teacher.name}</h3>
+                  <p className="text-sm text-gray-500">{teacher.department || 'Department not set'} • Teacher ID: {teacher.id ? teacher.id.substring(0, 8) : 'N/A'}</p>
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-5 text-center">
                 <div>
-                  <span className="block text-2xl font-bold text-gray-900">3</span>
+                  <span className="block text-2xl font-bold text-gray-900">{subjectsCount}</span>
                   <span className="block text-sm font-medium text-gray-500">Subjects</span>
                 </div>
                 <div>
-                  <span className="block text-2xl font-bold text-gray-900">115</span>
+                  <span className="block text-2xl font-bold text-gray-900">{studentsCount}</span>
                   <span className="block text-sm font-medium text-gray-500">Students</span>
                 </div>
               </div>
@@ -85,6 +251,7 @@ const TeacherDashboard = () => {
             </div>
           </div>
 
+          {/* Rest of the component remains the same */}
           {/* Quick Actions */}
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:p-6">
@@ -108,21 +275,16 @@ const TeacherDashboard = () => {
                   </svg>
                   <span className="ml-2 text-sm font-medium text-gray-700">Create Test</span>
                 </Link>
-                <button 
-                  onClick={() => setShowWallet(!showWallet)} 
-                  className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50"
-                >
+                <Link to="/teacherwallet" className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
                   <svg className="h-6 w-6 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                   </svg>
-                  <Link to="/teacherwallet" className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
                   <span className="ml-2 text-sm font-medium text-gray-700">My Wallet</span>
-                  </Link>
-                </button>
+                </Link>
               </div>
             </div>
           </div>
-
+          
           {/* Upcoming Classes */}
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:p-6">
@@ -149,49 +311,58 @@ const TeacherDashboard = () => {
             </div>
           </div>
         </div>
-
+        
         {/* Teacher Wallet Section */}
         {showWallet && (
           <div className="mt-6">
             <TeacherWallet />
           </div>
         )}
-
+        
         {/* Assigned Subjects */}
         <div className="mt-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">My Subjects</h3>
           <div className="bg-white shadow overflow-hidden sm:rounded-md">
-            <ul className="divide-y divide-gray-200">
-              {assignedSubjects.map(subject => (
-                <li key={subject.id}>
-                  <Link to={`/teacher/subject/${subject.id}`} className="block hover:bg-gray-50">
-                    <div className="px-4 py-4 sm:px-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                            <span className="text-purple-600 font-medium">{subject.name.charAt(0)}</span>
+            {teacherSubjects.length > 0 ? (
+              <ul className="divide-y divide-gray-200">
+                {teacherSubjects.map(subject => (
+                  <li key={subject.id}>
+                    <Link to={`/teacher/subject/${subject.id}`} className="block hover:bg-gray-50">
+                      <div className="px-4 py-4 sm:px-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
+                              <span className="text-purple-600 font-medium">{subject.name.charAt(0)}</span>
+                            </div>
+                            <div className="ml-4">
+                              <p className="text-sm font-medium text-gray-900">{subject.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {subject.description}
+                              </p>
+                            </div>
                           </div>
-                          <div className="ml-4">
-                            <p className="text-sm font-medium text-gray-900">{subject.name}</p>
-                            <p className="text-xs text-gray-500">
-                              {subject.grades.join(', ')} • {subject.students} students • Next class: {subject.nextClass}
-                            </p>
+                          <div className="flex items-center">
+                            <Link to={`/teacher/subject/${subject.id}/materials`} className="mr-4 text-xs text-purple-600 hover:text-purple-500">
+                              Manage Materials
+                            </Link>
+                            <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                            </svg>
                           </div>
-                        </div>
-                        <div className="flex items-center">
-                          <Link to={`/teacher/subject/${subject.id}/materials`} className="mr-4 text-xs text-purple-600 hover:text-purple-500">
-                            Manage Materials
-                          </Link>
-                          <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                          </svg>
                         </div>
                       </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="px-4 py-5 sm:p-6 text-center">
+                <p className="text-gray-500">You don't have any subjects assigned yet.</p>
+                <Link to="/teacher/create-subject" className="mt-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-purple-700 bg-purple-100 hover:bg-purple-200">
+                  Create Your First Subject
+                </Link>
+              </div>
+            )}
           </div>
           <div className="mt-2 text-right">
             <Link to="/teacher/subjects" className="text-sm text-purple-600 hover:text-purple-500">
@@ -200,6 +371,7 @@ const TeacherDashboard = () => {
           </div>
         </div>
 
+        
         {/* Pending Tasks */}
         <div className="mt-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Pending Tasks</h3>
@@ -240,7 +412,7 @@ const TeacherDashboard = () => {
             </Link>
           </div>
         </div>
-
+        
         {/* Student Performance Overview */}
         <div className="mt-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Student Performance Overview</h3>
@@ -295,7 +467,7 @@ const TeacherDashboard = () => {
             </div>
           </div>
         </div>
-
+        
         {/* Resource Center */}
         <div className="mt-6">
           <div className="bg-purple-50 rounded-lg shadow-sm p-6">
@@ -311,7 +483,7 @@ const TeacherDashboard = () => {
           </div>
         </div>
       </main>
-
+      
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 mt-8">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
