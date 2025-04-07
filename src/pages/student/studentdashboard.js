@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { auth, db } from '../../firebase/config';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 
 const StudentDashboard = () => {
@@ -14,6 +14,7 @@ const StudentDashboard = () => {
   const [hasSubscriptions, setHasSubscriptions] = useState(false);
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
   const [dialogTarget, setDialogTarget] = useState('');
+  const [error, setError] = useState(null);
   const [upcomingClasses, setUpcomingClasses] = useState([]);
   const [pendingAssignments, setPendingAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -33,7 +34,7 @@ const StudentDashboard = () => {
             where("email", "==", user.email),
             where("role", "==", "student")
           );
-          
+           
           let querySnapshot = await getDocs(q);
           if (querySnapshot.empty) {
             const studentsRef = collection(db, "students");
@@ -43,7 +44,7 @@ const StudentDashboard = () => {
             );
             querySnapshot = await getDocs(studentQuery);
           }
-          
+           
           if (!querySnapshot.empty) {
             // Get the first matching student document
             const studentDoc = querySnapshot.docs[0];
@@ -54,12 +55,10 @@ const StudentDashboard = () => {
               ...studentData,
               id: studentId
             });
-            
+             
             // Check if this is first login
             setIsFirstLogin(!studentData.lastLogin);
-            
-            // Check if student has subscriptions
-            // Inside your useEffect hook, after you've set the student state
+             
             // Check if student has subscriptions by querying the subscribedSubjects collection
             const subscribedSubjectsRef = collection(db, "subscribedSubjects");
             const subscriptionsQuery = query(
@@ -67,23 +66,22 @@ const StudentDashboard = () => {
               where("studentId", "==", studentId),
               where("status", "==", "active")
             );
-
             const subscriptionsSnapshot = await getDocs(subscriptionsQuery);
             console.log("Subscriptions found:", subscriptionsSnapshot.size);
             const hasSubscriptions = !subscriptionsSnapshot.empty;
             setHasSubscriptions(hasSubscriptions);
-
+             
             // If student has subscriptions, process them
             if (hasSubscriptions) {
               const subjectsData = [];
               const classesData = [];
               const assignmentsData = [];
-              
+               
               // Process each subscription
               for (const doc of subscriptionsSnapshot.docs) {
                 const subscription = doc.data();
                 console.log("Processing subscription:", subscription);
-                
+                 
                 // Add subject data from the subscription document
                 subjectsData.push({
                   id: subscription.subjectId.toString(),
@@ -93,17 +91,17 @@ const StudentDashboard = () => {
                   nextClass: "No upcoming classes", // Will be updated if available
                   progress: subscription.progress || 0
                 });
-                
+                 
                 // Try to get additional subject info if needed
                 try {
                   // Convert subjectId to string if it's stored as a number
                   const subjectIdStr = subscription.subjectId.toString();
                   const subjectRef = doc(db, "subjects", subjectIdStr);
                   const subjectSnap = await getDoc(subjectRef);
-                  
+                   
                   if (subjectSnap.exists()) {
                     const fullSubjectData = subjectSnap.data();
-                    
+                     
                     // Get teacher name if available
                     if (fullSubjectData.teacherId) {
                       const teacherRef = doc(db, "users", fullSubjectData.teacherId);
@@ -116,7 +114,7 @@ const StudentDashboard = () => {
                         }
                       }
                     }
-                    
+                     
                     // Fetch upcoming classes for this subject
                     const classesRef = collection(db, "classes");
                     const classesQuery = query(
@@ -125,7 +123,7 @@ const StudentDashboard = () => {
                       where("date", ">=", new Date())
                     );
                     const classesSnapshot = await getDocs(classesQuery);
-                    
+                     
                     classesSnapshot.forEach(classDoc => {
                       const classData = classDoc.data();
                       classesData.push({
@@ -137,7 +135,7 @@ const StudentDashboard = () => {
                         teacher: subjectsData.find(s => s.id === subjectIdStr)?.teacher || "Unknown Teacher"
                       });
                     });
-                    
+                     
                     // Fetch assignments for this subject
                     const assignmentsRef = collection(db, "assignments");
                     const assignmentsQuery = query(
@@ -145,7 +143,7 @@ const StudentDashboard = () => {
                       where("subjectId", "==", subjectIdStr)
                     );
                     const assignmentsSnapshot = await getDocs(assignmentsQuery);
-                    
+                     
                     if (assignmentsSnapshot.empty) {
                       // If no assignments found for this subject, add a placeholder
                       assignmentsData.push({
@@ -163,7 +161,7 @@ const StudentDashboard = () => {
                         const status = assignmentData.submissions &&
                                       assignmentData.submissions[studentId] ?
                                       "In Progress" : "Not Started";
-                        
+                         
                         assignmentsData.push({
                           id: assignDoc.id,
                           subject: subscription.subjectName,
@@ -178,19 +176,171 @@ const StudentDashboard = () => {
                   console.error("Error fetching additional subject data:", error);
                 }
               }
-              
+               
               console.log("Final subjects data:", subjectsData);
               setSubscribedSubjects(subjectsData);
-              
+               
+              // Fetch lessons for subscribed subjects
+              try {
+                const lessonsData = [];
+                const lessonsRef = collection(db, "lessons");
+                const lessonsSnapshot = await getDocs(lessonsRef);
+                 
+                console.log("Total lessons in database:", lessonsSnapshot.size);
+                 
+                // Get all subject IDs and names the student is subscribed to
+                const subscribedSubjects = subscriptionsSnapshot.docs.map(doc => {
+                  const data = doc.data();
+                  return {
+                    id: data.subjectId ? data.subjectId.toString() : null,
+                    name: data.subjectName || ""
+                  };
+                }).filter(subject => subject.id !== null || subject.name !== "");
+                 
+                console.log("Student's subscribed subjects:", subscribedSubjects);
+                 
+                // Process each lesson
+                lessonsSnapshot.forEach(lessonDoc => {
+                  const lessonData = lessonDoc.data();
+                  console.log("Checking lesson:", lessonDoc.id, lessonData);
+                   
+                  // Extract lesson subject information
+                  let lessonSubjectId = null;
+                  if (lessonData.subjectId) {
+                    if (typeof lessonData.subjectId === 'object' && lessonData.subjectId.id) {
+                      lessonSubjectId = lessonData.subjectId.id.toString();
+                    } else {
+                      lessonSubjectId = lessonData.subjectId.toString();
+                    }
+                  }
+                   
+                  const lessonSubjectName = lessonData.subjectName || "";
+                   
+                  console.log("Lesson subject ID:", lessonSubjectId);
+                  console.log("Lesson subject name:", lessonSubjectName);
+                   
+                  // Strict matching to ensure only subscribed subjects are shown
+                  const isSubscribed = subscribedSubjects.some(subject => {
+                    // Match by ID (exact match only)
+                    const idMatch = subject.id && lessonSubjectId && subject.id === lessonSubjectId;
+                     
+                    // Match by name (exact match only, case insensitive)
+                    const nameMatch = subject.name && lessonSubjectName &&
+                                     subject.name.toLowerCase() === lessonSubjectName.toLowerCase();
+                     
+                    return idMatch || nameMatch;
+                  });
+                   
+                  console.log("Is student subscribed to this lesson's subject?", isSubscribed);
+                   
+                  if (isSubscribed) {
+                    // Convert Firestore timestamp to Date object
+                    let lessonDate = lessonData.date;
+                    if (lessonData.date && lessonData.date.seconds) {
+                      lessonDate = new Date(lessonData.date.seconds * 1000);
+                    } else if (typeof lessonData.date === 'string') {
+                      lessonDate = new Date(lessonData.date);
+                    }
+                     
+                    // Format time from the date object
+                    const timeString = lessonDate ?
+                      lessonDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) :
+                      "TBD";
+                    
+                    // Process end time
+                    let endTime = "TBD";
+                    let endTimeDate = null;
+                    
+                    if (lessonData.endTime) {
+                      // If endTime is directly provided as a timestamp
+                      if (lessonData.endTime.seconds) {
+                        endTimeDate = new Date(lessonData.endTime.seconds * 1000);
+                        endTime = endTimeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      } 
+                      // If endTime is provided as a string
+                      else if (typeof lessonData.endTime === 'string') {
+                        endTime = lessonData.endTime;
+                        
+                        // Try to create a date object from the string for comparison
+                        if (lessonDate) {
+                          const [hours, minutes] = lessonData.endTime.split(':').map(Number);
+                          endTimeDate = new Date(lessonDate);
+                          endTimeDate.setHours(hours, minutes, 0);
+                        }
+                      }
+                    } 
+                    // If duration is provided instead of endTime
+                    else if (lessonData.duration && lessonDate) {
+                      const durationMinutes = parseInt(lessonData.duration);
+                      if (!isNaN(durationMinutes)) {
+                        endTimeDate = new Date(lessonDate.getTime() + durationMinutes * 60000);
+                        endTime = endTimeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      }
+                    }
+                     
+                    // Calculate time until lesson
+                    const now = new Date();
+                    const timeUntilLesson = lessonDate ? lessonDate - now : 0;
+                    const hoursUntilLesson = timeUntilLesson / (1000 * 60 * 60);
+                    const daysUntilLesson = hoursUntilLesson / 24;
+                     
+                    // Determine status based on time until lesson and end time
+                    let status = "upcoming"; // default
+                    if (lessonDate) {
+                      if (endTimeDate && endTimeDate < now) {
+                        status = "ended"; // Lesson has ended
+                      } else if (lessonDate < now) {
+                        status = "past"; // Start time has passed but no end time or end time hasn't passed
+                      } else if (hoursUntilLesson <= 2) {
+                        status = "imminent"; // within 2 hours
+                      } else if (daysUntilLesson <= 1) {
+                        status = "soon"; // within 1 day
+                      }
+                    }
+                    
+                    // Only add lessons that haven't ended
+                    if (status !== "ended") {
+                      // Add lesson to the array
+                      lessonsData.push({
+                        id: lessonDoc.id,
+                        title: lessonData.title || "Untitled Lesson",
+                        subject: lessonData.subjectName || "Unknown Subject",
+                        subjectId: lessonData.subjectId,
+                        date: lessonDate,
+                        formattedDate: formatDate(lessonDate),
+                        time: timeString,
+                        endTime: endTime,
+                        teacher: lessonData.teacherName || "Unknown Teacher",
+                        status: status,
+                        description: lessonData.description || ""
+                      });
+                    }
+                  }
+                });
+                 
+                // Sort lessons by date (closest first)
+                lessonsData.sort((a, b) => {
+                  if (!a.date) return 1;
+                  if (!b.date) return -1;
+                  return a.date - b.date;
+                });
+                 
+                console.log("Final lessons data:", lessonsData);
+                 
+                // Set upcoming classes to the lessons data
+                setUpcomingClasses(lessonsData.slice(0, 5)); // Show top 5 upcoming lessons
+              } catch (error) {
+                console.error("Error fetching lessons:", error);
+                setUpcomingClasses([]); // Set empty array on error
+              }
+               
               // Sort classes by date and time
               classesData.sort((a, b) => {
                 const dateA = new Date(a.date + " " + a.time);
                 const dateB = new Date(b.date + " " + b.time);
                 return dateA - dateB;
               });
-              
-              setUpcomingClasses(classesData.slice(0, 3)); // Show only 3 upcoming classes
-              
+               
               // Filter out placeholder assignments
               const realAssignments = assignmentsData.filter(a => !a.isPlaceholder);
               setPendingAssignments(realAssignments.length > 0 ?
@@ -198,58 +348,71 @@ const StudentDashboard = () => {
                 assignmentsData.slice(0, 3)   // Or show placeholders if no real assignments
               );
             }
-
-
-
+             
             // Fetch payment history
-            const paymentsRef = collection(db, "payments");
-            const paymentsQuery = query(
-              paymentsRef,
-              where("studentId", "==", studentId)
-            );
-            const paymentsSnapshot = await getDocs(paymentsQuery);
-            
-            const paymentsData = [];
-            paymentsSnapshot.forEach(doc => {
-              const paymentData = doc.data();
-              paymentsData.push({
-                id: doc.id,
-                amount: paymentData.amount,
-                date: paymentData.date ? new Date(paymentData.date.seconds * 1000) : new Date(),
-                subjects: paymentData.subjects || [],
-                method: paymentData.method || "Unknown",
-                status: paymentData.status || "Completed",
-                reference: paymentData.reference || doc.id.substring(0, 8)
+            try {
+              const paymentsRef = collection(db, "payments");
+              const paymentsQuery = query(
+                paymentsRef,
+                where("studentId", "==", studentId)
+              );
+              const paymentsSnapshot = await getDocs(paymentsQuery);
+               
+              const paymentsData = [];
+              paymentsSnapshot.forEach(doc => {
+                const paymentData = doc.data();
+                paymentsData.push({
+                  id: doc.id,
+                  amount: paymentData.amount,
+                  date: paymentData.date ? new Date(paymentData.date.seconds * 1000) : new Date(),
+                  subjects: paymentData.subjects || [],
+                  method: paymentData.method || "Unknown",
+                  status: paymentData.status || "Completed",
+                  reference: paymentData.reference || doc.id.substring(0, 8)
+                });
               });
-            });
-            
-            // Sort payments by date (newest first)
-            paymentsData.sort((a, b) => b.date - a.date);
-            setPayments(paymentsData);
-
-            // Update the last login timestamp in Firestore
+               
+              // Sort payments by date (newest first)
+              paymentsData.sort((a, b) => b.date - a.date);
+              setPayments(paymentsData);
+            } catch (error) {
+              console.error("Error fetching payment history:", error);
+              setPayments([]);
+            }
+             
+                      // Update the last login timestamp in the database
+          try {
             const studentRef = doc(db, querySnapshot.docs[0].ref.path);
             await updateDoc(studentRef, {
-              lastLogin: new Date()
+              lastLogin: serverTimestamp()
             });
-          } else {
-            // No student found with this email
-            console.log("No student account found with this email");
-            navigate('/login');
+            console.log("Updated last login timestamp");
+          } catch (error) {
+            console.error("Error updating last login timestamp:", error);
           }
-        } catch (error) {
-          console.error("Error fetching student data:", error);
-        } finally {
-          setLoading(false);
+        } else {
+          console.error("No student document found for email:", user.email);
+          setError("No student account found for this email. Please contact support.");
         }
-      } else {
-        // No user is signed in, redirect to login
-        navigate('/login');
+      } catch (error) {
+        console.error("Error fetching student data:", error);
+        setError("Error loading student data. Please try again later.");
+      } finally {
+        setLoading(false);
       }
-    });
-    
-    return () => unsubscribe();
-  }, [navigate]);
+    } else {
+      // User is not logged in, redirect to login page
+      console.log("No user is signed in, redirecting to login");
+      navigate("/login");
+    }
+  });
+
+  // Clean up the subscription when the component unmounts
+  return () => unsubscribe();
+}, [navigate]);
+
+  
+  
 
   const handleNavigation = (e, path) => {
     if (!hasSubscriptions && path !== '/subjectsubscription' && path !== '/student/profile') {
@@ -429,31 +592,62 @@ const StudentDashboard = () => {
           {/* Upcoming Classes */}
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Upcoming Classes</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Upcoming Lessons</h3>
               {hasSubscriptions ? (
                 <div className="space-y-3">
                   {upcomingClasses.length > 0 ? (
-                    upcomingClasses.map(cls => (
-                      <div key={cls.id} className="flex items-center p-3 bg-gray-50 rounded-lg">
-                        <div className="flex-shrink-0 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                          <span className="text-blue-600 font-medium">{cls.subject.charAt(0)}</span>
+                    // In the JSX where you render upcoming lessons, modify the time display:
+
+                  upcomingClasses.map(lesson => (
+                    <div key={lesson.id} className="flex items-center p-3 bg-gray-50 rounded-lg">
+                      <div className="flex-shrink-0 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                        <span className="text-blue-600 font-medium">{lesson.subject.charAt(0)}</span>
+                      </div>
+                      <div className="ml-3 flex-grow">
+                        <div className="flex items-center">
+                          <p className="text-sm font-medium text-gray-900">{lesson.title}</p>
+                          {/* Status indicator */}
+                          <span
+                            className={`ml-2 h-2 w-2 rounded-full ${
+                              lesson.status === 'past' ? 'bg-red-500' :
+                              lesson.status === 'imminent' ? 'bg-orange-500' :
+                              lesson.status === 'soon' ? 'bg-green-500' :
+                              'bg-blue-500'
+                            } animate-pulse`}
+                          ></span>
                         </div>
-                        <div className="ml-3">
-                          <p className="text-sm font-medium text-gray-900">{cls.subject}: {cls.topic}</p>
-                          <p className="text-xs text-gray-500">{cls.date}, {cls.time} • {cls.teacher}</p>
-                        </div>
-                        <Link
-                          to={`/student/classroom/${cls.id}`}
-                          onClick={(e) => handleNavigation(e, `/student/classroom/${cls.id}`)}
-                          className="ml-auto bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-medium"
+                        <p className="text-xs text-gray-500">
+                          {lesson.subject} • {lesson.formattedDate}, {lesson.time} - {lesson.endTime} • {lesson.teacher}
+                        </p>
+                      </div>
+                      <div className="ml-auto flex items-center">
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            lesson.status === 'past' ? 'bg-red-100 text-red-800' :
+                            lesson.status === 'imminent' ? 'bg-orange-100 text-orange-800' :
+                            lesson.status === 'soon' ? 'bg-green-100 text-green-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}
                         >
-                          Join
+                          {lesson.status === 'past' ? 'Missed' :
+                          lesson.status === 'imminent' ? 'Starting Soon' :
+                          lesson.status === 'soon' ? 'Today/Tomorrow' :
+                          'Upcoming'}
+                        </span>
+                        <Link
+                          to={`/student/classroom/${lesson.id}`}
+                          onClick={(e) => handleNavigation(e, `/student/classroom/${lesson.id}`)}
+                          className="ml-3 bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-medium"
+                        >
+                          {lesson.status === 'past' ? 'Review' : 'Join'}
                         </Link>
                       </div>
-                    ))
+                    </div>
+                  ))
+
                   ) : (
                     <div className="text-center py-4">
-                      <p className="text-sm text-gray-500">No upcoming classes scheduled</p>
+                      <p className="text-sm text-gray-500">No upcoming lessons scheduled for your subjects</p>
                     </div>
                   )}
                   <Link
@@ -469,8 +663,8 @@ const StudentDashboard = () => {
                   <svg className="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No classes scheduled</h3>
-                  <p className="mt-1 text-sm text-gray-500">Subscribe to subjects to see your class schedule.</p>
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No lessons scheduled</h3>
+                  <p className="mt-1 text-sm text-gray-500">Subscribe to subjects to see your lesson schedule.</p>
                   <div className="mt-6">
                     <Link to="/subjectsubscription" className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
                       Subscribe to Subjects

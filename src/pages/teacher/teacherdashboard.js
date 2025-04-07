@@ -1,18 +1,49 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import TeacherWallet from './teacherwallet';
 import { auth, db } from '../../firebase/config';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, query, where, getDocs, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { storage } from '../../firebase/config';
+import { Dialog, Transition } from '@headlessui/react';
+import { uploadFileToMongo, getFileUrl } from '../../utils/fileUpload';
+
+import DatePicker from 'react-datepicker';
+import "react-datepicker/dist/react-datepicker.css";
 
 const TeacherDashboard = () => {
+  
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [teacher, setTeacher] = useState(null);
   const [isFirstLogin, setIsFirstLogin] = useState(false);
   const [subjectsCount, setSubjectsCount] = useState(0);
   const [studentsCount, setStudentsCount] = useState(0);
+  const [isCreateLessonOpen, setIsCreateLessonOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [lessonTitle, setLessonTitle] = useState('');
+  const [lessonDescription, setLessonDescription] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [endTime, setEndTime] = useState('');
+  const [isCreateTestOpen, setIsCreateTestOpen] = useState(false);
+  const [testTitle, setTestTitle] = useState('');
+  const [testDescription, setTestDescription] = useState('');
+  const [testSubject, setTestSubject] = useState('');
+  const [testStartDate, setTestStartDate] = useState(new Date());
+  const [testEndDate, setTestEndDate] = useState(new Date());
+  const [testStartTime, setTestStartTime] = useState('');
+  const [testEndTime, setTestEndTime] = useState('');
+  const [testFile, setTestFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isTestSubmitting, setIsTestSubmitting] = useState(false);
+  const fileInputRef = useRef(null);
+    
+
+
   
   // Original state variables
   const [upcomingClasses] = useState([
@@ -36,6 +67,110 @@ const TeacherDashboard = () => {
   // Added state for wallet section visibility
   const [showWallet, setShowWallet] = useState(false);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
+
+  // File input change handler
+const handleFileChange = (e) => {
+  if (e.target.files[0]) {
+    // Check file size - limit to 10MB
+    if (e.target.files[0].size > 10 * 1024 * 1024) {
+      alert('File is too large. Please select a file smaller than 10MB.');
+      return;
+    }
+    setTestFile(e.target.files[0]);
+  }
+};
+
+// Create test handler
+const handleCreateTest = async () => {
+  if (!testTitle || !testSubject || !testStartTime || !testEndTime || !testFile) {
+    alert('Please fill in all required fields and upload a test file');
+    return;
+  }
+  
+  setIsTestSubmitting(true);
+  setUploadProgress(10); // Show initial progress
+  
+  try {
+    console.log('Starting test creation process...');
+    
+    // Find the selected subject details
+    const subjectDetails = teacherSubjects.find(subject => subject.id === testSubject);
+    console.log('Subject details:', subjectDetails);
+    
+    // Create start datetime
+    const testStartDateTime = new Date(testStartDate);
+    const [startHours, startMinutes] = testStartTime.split(':');
+    testStartDateTime.setHours(parseInt(startHours, 10), parseInt(startMinutes, 10));
+    
+    // Create end datetime
+    const testEndDateTime = new Date(testEndDate);
+    const [endHours, endMinutes] = testEndTime.split(':');
+    testEndDateTime.setHours(parseInt(endHours, 10), parseInt(endMinutes, 10));
+    
+    console.log('Uploading file to MongoDB...');
+    console.log('File details:', {
+      name: testFile.name,
+      type: testFile.type,
+      size: testFile.size
+    });
+    
+    // Upload file to MongoDB via the server API
+    const fileData = await uploadFileToMongo(testFile);
+    console.log('File uploaded successfully:', fileData);
+    setUploadProgress(100); // Upload complete
+    
+    // Get file URL for later retrieval
+    const fileURL = getFileUrl(fileData.filename);
+    console.log('File URL:', fileURL);
+    
+    console.log('Creating test document in Firestore...');
+    // Create the test document in Firestore
+    const testData = {
+      title: testTitle,
+      description: testDescription,
+      subjectId: testSubject,
+      subjectName: subjectDetails?.name || '',
+      teacherId: teacher.id,
+      teacherName: teacher.name,
+      startTime: testStartDateTime,
+      endTime: testEndDateTime,
+      fileURL: fileURL,
+      fileId: fileData.fileId,
+      fileName: testFile.name,
+      fileType: testFile.type,
+      createdAt: serverTimestamp(),
+      status: 'scheduled'
+    };
+    
+    console.log('Test data to be saved:', testData);
+    
+    // Add to Firestore
+    const docRef = await addDoc(collection(db, "tests"), testData);
+    console.log("Test created with ID: ", docRef.id);
+    
+    // Reset form and close dialog
+    setTestTitle('');
+    setTestDescription('');
+    setTestSubject('');
+    setTestStartDate(new Date());
+    setTestEndDate(new Date());
+    setTestStartTime('');
+    setTestEndTime('');
+    setTestFile(null);
+    setUploadProgress(0);
+    setIsCreateTestOpen(false);
+    
+    // Show success message
+    alert('Test created successfully!');
+  } catch (error) {
+    console.error("Error creating test: ", error);
+    alert(`Failed to create test: ${error.message}`);
+  } finally {
+    setIsTestSubmitting(false);
+  }
+};
+
+
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -164,6 +299,65 @@ const TeacherDashboard = () => {
     
     return () => unsubscribe();
   }, [navigate]);
+  // Add this function to handle lesson creation
+  const handleCreateLesson = async () => {
+    if (!selectedSubject || !selectedTime || !lessonTitle || !endTime) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      // Find the selected subject details
+      const subjectDetails = teacherSubjects.find(subject => subject.id === selectedSubject);
+      
+      // Create a combined date and time for start time
+      const lessonDateTime = new Date(selectedDate);
+      const [hours, minutes] = selectedTime.split(':');
+      lessonDateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+      
+      // Create a combined date and time for end time
+      const lessonEndDateTime = new Date(selectedDate);
+      const [endHours, endMinutes] = endTime.split(':');
+      lessonEndDateTime.setHours(parseInt(endHours, 10), parseInt(endMinutes, 10));
+      
+      // Create the lesson document
+      const lessonData = {
+        title: lessonTitle,
+        description: lessonDescription,
+        subjectId: selectedSubject,
+        subjectName: subjectDetails?.name || '',
+        teacherId: teacher.id,
+        teacherName: teacher.name,
+        date: lessonDateTime,
+        endTime: lessonEndDateTime, // Add end time
+        createdAt: serverTimestamp(),
+        status: 'scheduled'
+      };
+      
+      // Add to Firestore
+      const docRef = await addDoc(collection(db, "lessons"), lessonData);
+      console.log("Lesson created with ID: ", docRef.id);
+      
+      // Reset form and close dialog
+      setLessonTitle('');
+      setLessonDescription('');
+      setSelectedSubject('');
+      setSelectedDate(new Date());
+      setSelectedTime('');
+      setEndTime(''); // Reset end time
+      setIsCreateLessonOpen(false);
+      
+      // Show success message
+      alert('Lesson created successfully!');
+    } catch (error) {
+      console.error("Error creating lesson: ", error);
+      alert('Failed to create lesson. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+
   
 
   if (loading) {
@@ -263,18 +457,405 @@ const TeacherDashboard = () => {
                   </svg>
                   <span className="ml-2 text-sm font-medium text-gray-700">Create Class</span>
                 </Link>
-                <Link to="/teacher/create-lesson" className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
+                {/* Replace the existing Create Lesson link with this button */}
+                <button 
+                  onClick={() => setIsCreateLessonOpen(true)} 
+                  className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50"
+                >
                   <svg className="h-6 w-6 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                   </svg>
                   <span className="ml-2 text-sm font-medium text-gray-700">Create Lesson</span>
-                </Link>
-                <Link to="/teacher/create-test" className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
+                </button>
+                {/* Create Lesson Dialog */}
+                <Transition appear show={isCreateLessonOpen} as={Fragment}>
+                  <Dialog as="div" className="relative z-10" onClose={() => setIsCreateLessonOpen(false)}>
+                    <Transition.Child
+                      as={Fragment}
+                      enter="ease-out duration-300"
+                      enterFrom="opacity-0"
+                      enterTo="opacity-100"
+                      leave="ease-in duration-200"
+                      leaveFrom="opacity-100"
+                      leaveTo="opacity-0"
+                    >
+                      <div className="fixed inset-0 bg-black bg-opacity-25" />
+                    </Transition.Child>
+
+                    <div className="fixed inset-0 overflow-y-auto">
+                      <div className="flex min-h-full items-center justify-center p-4 text-center">
+                        <Transition.Child
+                          as={Fragment}
+                          enter="ease-out duration-300"
+                          enterFrom="opacity-0 scale-95"
+                          enterTo="opacity-100 scale-100"
+                          leave="ease-in duration-200"
+                          leaveFrom="opacity-100 scale-100"
+                          leaveTo="opacity-0 scale-95"
+                        >
+                          <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                            <Dialog.Title
+                              as="h3"
+                              className="text-lg font-medium leading-6 text-gray-900"
+                            >
+                              Create New Lesson
+                            </Dialog.Title>
+                            
+                            <div className="mt-4 space-y-4">
+                              {/* Lesson Title */}
+                              <div>
+                                <label htmlFor="lesson-title" className="block text-sm font-medium text-gray-700">
+                                  Lesson Title *
+                                </label>
+                                <input
+                                  type="text"
+                                  id="lesson-title"
+                                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                                  value={lessonTitle}
+                                  onChange={(e) => setLessonTitle(e.target.value)}
+                                  required
+                                />
+                              </div>
+                              
+                              {/* Subject Selection */}
+                              <div>
+                                <label htmlFor="subject" className="block text-sm font-medium text-gray-700">
+                                  Subject *
+                                </label>
+                                <select
+                                  id="subject"
+                                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                                  value={selectedSubject}
+                                  onChange={(e) => setSelectedSubject(e.target.value)}
+                                  required
+                                >
+                                  <option value="">Select a subject</option>
+                                  {teacherSubjects.map(subject => (
+                                    <option key={subject.id} value={subject.id}>
+                                      {subject.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              
+                              {/* Date Picker */}
+                              <div>
+                                <label htmlFor="date" className="block text-sm font-medium text-gray-700">
+                                  Date *
+                                </label>
+                                <DatePicker
+                                  selected={selectedDate}
+                                  onChange={(date) => setSelectedDate(date)}
+                                  minDate={new Date()}
+                                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                                  required
+                                />
+                              </div>
+                              
+                              {/* Time Input */}
+                              <div>
+                                <label htmlFor="time" className="block text-sm font-medium text-gray-700">
+                                  Start Time *
+                                </label>
+                                <input
+                                  type="time"
+                                  id="time"
+                                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                                  value={selectedTime}
+                                  onChange={(e) => setSelectedTime(e.target.value)}
+                                  required
+                                />
+                              </div>
+
+                              {/* End Time Input - New Field */}
+                              <div>
+                                <label htmlFor="endTime" className="block text-sm font-medium text-gray-700">
+                                  End Time *
+                                </label>
+                                <input
+                                  type="time"
+                                  id="endTime"
+                                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                                  value={endTime}
+                                  onChange={(e) => setEndTime(e.target.value)}
+                                  required
+                                />
+                              </div>
+
+                              
+                              {/* Description */}
+                              <div>
+                                <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+                                  Description
+                                </label>
+                                <textarea
+                                  id="description"
+                                  rows={3}
+                                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                                  value={lessonDescription}
+                                  onChange={(e) => setLessonDescription(e.target.value)}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="mt-6 flex justify-end space-x-3">
+                              <button
+                                type="button"
+                                className="inline-flex justify-center rounded-md border border-transparent bg-gray-200 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                                onClick={() => setIsCreateLessonOpen(false)}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className={`inline-flex justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 ${
+                                  isSubmitting 
+                                    ? 'bg-purple-300 cursor-not-allowed' 
+                                    : 'bg-purple-600 hover:bg-purple-700'
+                                }`}
+                                onClick={handleCreateLesson}
+                                disabled={isSubmitting}
+                              >
+                                {isSubmitting ? 'Creating...' : 'Create Lesson'}
+                              </button>
+                            </div>
+                          </Dialog.Panel>
+                        </Transition.Child>
+                      </div>
+                    </div>
+                  </Dialog>
+                </Transition>
+
+
+                <button
+                  onClick={() => setIsCreateTestOpen(true)}
+                  className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50"
+                >
                   <svg className="h-6 w-6 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                   <span className="ml-2 text-sm font-medium text-gray-700">Create Test</span>
-                </Link>
+                </button>
+                {/* Create Test Dialog */}
+<Transition appear show={isCreateTestOpen} as={Fragment}>
+  <Dialog as="div" className="relative z-10" onClose={() => setIsCreateTestOpen(false)}>
+    <Transition.Child
+      as={Fragment}
+      enter="ease-out duration-300"
+      enterFrom="opacity-0"
+      enterTo="opacity-100"
+      leave="ease-in duration-200"
+      leaveFrom="opacity-100"
+      leaveTo="opacity-0"
+    >
+      <div className="fixed inset-0 bg-black bg-opacity-25" />
+    </Transition.Child>
+    <div className="fixed inset-0 overflow-y-auto">
+      <div className="flex min-h-full items-center justify-center p-4 text-center">
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0 scale-95"
+          enterTo="opacity-100 scale-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100 scale-100"
+          leaveTo="opacity-0 scale-95"
+        >
+          <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+            <Dialog.Title
+              as="h3"
+              className="text-lg font-medium leading-6 text-gray-900"
+            >
+              Create New Test
+            </Dialog.Title>
+            
+            <div className="mt-4 space-y-4">
+              {/* Test Title */}
+              <div>
+                <label htmlFor="test-title" className="block text-sm font-medium text-gray-700">
+                  Test Title *
+                </label>
+                <input
+                  type="text"
+                  id="test-title"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                  value={testTitle}
+                  onChange={(e) => setTestTitle(e.target.value)}
+                  required
+                />
+              </div>
+              
+              {/* Subject Selection */}
+              <div>
+                <label htmlFor="test-subject" className="block text-sm font-medium text-gray-700">
+                  Subject *
+                </label>
+                <select
+                  id="test-subject"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                  value={testSubject}
+                  onChange={(e) => setTestSubject(e.target.value)}
+                  required
+                >
+                  <option value="">Select a subject</option>
+                  {teacherSubjects.map(subject => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Start Date & Time */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
+                    Start Date *
+                  </label>
+                  <DatePicker
+                    selected={testStartDate}
+                    onChange={(date) => setTestStartDate(date)}
+                    minDate={new Date()}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="start-time" className="block text-sm font-medium text-gray-700">
+                    Start Time *
+                  </label>
+                  <input
+                    type="time"
+                    id="start-time"
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                    value={testStartTime}
+                    onChange={(e) => setTestStartTime(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              
+              {/* End Date & Time */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
+                    End Date *
+                  </label>
+                  <DatePicker
+                    selected={testEndDate}
+                    onChange={(date) => setTestEndDate(date)}
+                    minDate={testStartDate}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="end-time" className="block text-sm font-medium text-gray-700">
+                    End Time *
+                  </label>
+                  <input
+                    type="time"
+                    id="end-time"
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                    value={testEndTime}
+                    onChange={(e) => setTestEndTime(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              
+              {/* File Upload */}
+              <div>
+                <label htmlFor="test-file" className="block text-sm font-medium text-gray-700">
+                  Upload Test File * (PDF, DOCX, or Image - Max 10MB)
+                </label>
+                <div className="mt-1 flex items-center">
+                  <input
+                    type="file"
+                    id="test-file"
+                    ref={fileInputRef}
+                    className="sr-only"
+                    accept=".pdf,.docx,.doc,.jpg,.jpeg,.png"
+                    onChange={handleFileChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current.click()}
+                    className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                  >
+                    <svg className="-ml-1 mr-2 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Choose File
+                  </button>
+                  <span className="ml-3 text-sm text-gray-500">
+                    {testFile ? testFile.name : 'No file selected'}
+                  </span>
+                </div>
+                {uploadProgress > 0 && uploadProgress < 100 && (
+                  <div className="mt-2">
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div 
+                        className="bg-purple-600 h-2.5 rounded-full" 
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Uploading: {Math.round(uploadProgress)}%</p>
+                  </div>
+                )}
+                {uploadProgress === 100 && (
+                  <p className="text-xs text-green-500 mt-1">Upload complete!</p>
+                )}
+              </div>
+
+
+              
+              {/* Description */}
+              <div>
+                <label htmlFor="test-description" className="block text-sm font-medium text-gray-700">
+                  Description
+                </label>
+                <textarea
+                  id="test-description"
+                  rows={3}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                  value={testDescription}
+                  onChange={(e) => setTestDescription(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                type="button"
+                className="inline-flex justify-center rounded-md border border-transparent bg-gray-200 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                onClick={() => setIsCreateTestOpen(false)}
+                disabled={isTestSubmitting}
+              >
+                Cancel
+              </button>
+              <button    
+               type="button"
+                      className={`inline-flex justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 ${
+                        isTestSubmitting
+                          ? 'bg-purple-300 cursor-not-allowed'
+                          : 'bg-purple-600 hover:bg-purple-700'
+                      }`}
+                      onClick={handleCreateTest}
+                      disabled={isTestSubmitting}
+                    >
+                      {isTestSubmitting ? 'Creating...' : 'Create Test'}
+                        </button>
+                      </div>
+                    </Dialog.Panel>
+                  </Transition.Child>
+                </div>
+                </div>
+                  </Dialog>
+                </Transition>
+
+
+
                 <Link to="/teacherwallet" className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
                   <svg className="h-6 w-6 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />

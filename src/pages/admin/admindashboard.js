@@ -222,7 +222,7 @@ const AdminDashboard = () => {
         role: 'teacher',
         department: newTeacher.department,
         phone: newTeacher.phone,
-        subject:newTeacher.subject,
+        
         createdAt: serverTimestamp()
       });
       
@@ -901,9 +901,14 @@ const AdminDashboard = () => {
         <h3 className="text-lg font-medium text-green-900">System Maintenance</h3>
         <p className="text-sm text-green-700 mt-1">Schedule maintenance windows or enable maintenance mode for system updates</p>
       </div>
-      <Link to="/admin/maintenance" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
-        Maintenance Settings
-      </Link>
+      <div className="flex space-x-3">
+        <Link to="/admin/maintenance" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+          Maintenance Settings
+        </Link>
+        <Link to="/admin/timetable" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+          Create Timetable
+        </Link>
+      </div>
     </div>
   </div>
 </div>

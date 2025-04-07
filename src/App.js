@@ -11,6 +11,7 @@ import StudentDashboard from './pages/student/studentdashboard';
 import StudentProfile from './pages/student/studentprofile';
 import StudentTime from './pages/student/studenttimetable';
 import AdminDashboard from './pages/admin/admindashboard';
+import TimetablePage from './pages/admin/timetable';
 import './index.css';
 import SubjectSubscription from './pages/student/subjectsubscription';
 import SubscriptionPage from './pages/student/subscription';
@@ -35,6 +36,7 @@ function App() {
         <Route path="/studenttimetable" element={<StudentTime />} />
         <Route path="/subscription" element={<SubscriptionPage/>} />
         <Route path="/subjectsubscription" element={<SubjectSubscription />} />
+        <Route path="/admin/timetable" element={<TimetablePage />} />
 
         {/* Admin Routes */}
         <Route path="/admindashboard" element={<AdminDashboard />} />
