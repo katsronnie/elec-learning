@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "e-learning-1c6c2",
+    "staging": "e-learning-1c6c2"
+  },
+  "targets": {},
+  "etags": {}
+}

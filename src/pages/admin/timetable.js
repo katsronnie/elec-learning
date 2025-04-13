@@ -77,7 +77,7 @@ const TimetablePage = () => {
     });
     
     setTimetable(initializedTimetable);
-  }, []);
+  }, [timeSlots, timetable]);
 
   // Handle timetable name and description changes
   const handleInputChange = (e) => {

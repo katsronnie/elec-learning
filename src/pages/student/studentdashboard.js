@@ -5,6 +5,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 
+
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -13,8 +14,8 @@ const StudentDashboard = () => {
   const [subscribedSubjects, setSubscribedSubjects] = useState([]);
   const [hasSubscriptions, setHasSubscriptions] = useState(false);
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
-  const [dialogTarget, setDialogTarget] = useState('');
-  const [error, setError] = useState(null);
+  const [setDialogTarget] = useState('');
+  const [setError] = useState(null);
   const [upcomingClasses, setUpcomingClasses] = useState([]);
   const [pendingAssignments, setPendingAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -409,7 +410,7 @@ const StudentDashboard = () => {
 
   // Clean up the subscription when the component unmounts
   return () => unsubscribe();
-}, [navigate]);
+}, [navigate, setError]);
 
   
   
@@ -557,8 +558,8 @@ const StudentDashboard = () => {
                   <span className="ml-2 text-sm font-medium text-gray-700">Subscribe Subjects</span>
                 </Link>
                 <Link
-                  to="/student/assignments"
-                  onClick={(e) => handleNavigation(e, '/student/assignments')}
+                  to="/assignment"
+                  onClick={(e) => handleNavigation(e, '/assignment')}
                   className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50"
                 >
                   <svg className="h-6 w-6 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

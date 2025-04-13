@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const StudentProfile = () => {
   // In a real application, this data would come from an API
-  const [student, setStudent] = useState({
+  const [student ] = useState({
     id: 'ST12345',
     name: 'Alex Johnson',
     email: 'alex.johnson@example.com',

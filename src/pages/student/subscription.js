@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import SubjectSubscription from './subjectsubscription';
 import { auth, db } from '../../firebase/config';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, updateDoc, arrayUnion, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 const SubscriptionPage = () => {
   const navigate = useNavigate();

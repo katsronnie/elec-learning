@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const TeacherWallet = () => {
   const [walletBalance, setWalletBalance] = useState(1250.75);
-  const [pendingPayments, setPendingPayments] = useState(350.00);
+  const [pendingPayments] = useState(350.00);
   const [isLoading, setIsLoading] = useState(false);
   const [transactions, setTransactions] = useState([
     { 

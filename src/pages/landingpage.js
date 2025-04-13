@@ -116,9 +116,9 @@ const LandingPage = () => {
       <footer className="bg-gray-800 text-white p-4 text-center text-sm">
         <p>© 2023 School E-Learning App</p>
         <div className="flex justify-center space-x-4 mt-2">
-          <a href="#" className="text-gray-400 hover:text-white">Help</a>
+          {/* <a href="#" className="text-gray-400 hover:text-white">Help</a>
           <a href="#" className="text-gray-400 hover:text-white">Privacy</a>
-          <a href="#" className="text-gray-400 hover:text-white">Terms</a>
+          <a href="#" className="text-gray-400 hover:text-white">Terms</a> */}
         </div>
       </footer>
     </div>
